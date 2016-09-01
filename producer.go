@@ -10,15 +10,10 @@ const (
 	DEFAULT_CHUNK_LENGTH = 1000000
 )
 
-type ContentInfo struct {
-	Etag string
-	Length int64
-}
-
 type FileProducer struct {
 	Url string
 	Filename string
-	Info ContentInfo
+	Length int64
 }
 
 func NewProducer(url string, filename string) (p *FileProducer) {
@@ -33,13 +28,13 @@ func (fp *FileProducer) Produce(progress chan int64, done chan bool) {
 	
 	resp, _ := http.Get(fp.Url)
 	if (resp.StatusCode == 200) {
-		fp.Info.Length = resp.ContentLength
+		fp.Length = resp.ContentLength
 		f, _ := os.Create(fp.Filename)
 		
-		for written = 0 ; written < fp.Info.Length ; {
+		for written = 0 ; written < fp.Length ; {
 			n, _ := io.CopyN(f, resp.Body, DEFAULT_CHUNK_LENGTH)
 			written += n
-			progress <- written
+			progress <- n
 		}
 
 		defer f.Close()
