@@ -5,10 +5,6 @@ import (
 	"net/http"
 )
 
-const (
-	DEFAULT_CHUNK_LENGTH = 1024 * 1024
-)
-
 type HttpSource struct {
 	Url string
 }
@@ -20,13 +16,13 @@ func NewHttpSource(url string) (hs *HttpSource) {
 }
 
 func (hs *HttpSource) Stream(destination chan<- []byte) {
-	chunk := make([]byte, DEFAULT_CHUNK_LENGTH, DEFAULT_CHUNK_LENGTH)
+	chunk := make([]byte, 64000, 64000)
 	resp, _ := http.Get(hs.Url)
 	if (resp.StatusCode == 200) {
 		for {
 			n, err := resp.Body.Read(chunk)
 			destination <- chunk[0:n]
-			if err == io.EOF { break }
+			if n == 0 && err == io.EOF { break }
 		}
 		close(destination)
 	}
