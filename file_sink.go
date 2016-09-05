@@ -2,6 +2,7 @@ package main
 
 import (
 	"os"
+//	"fmt"
 )
 
 type FileSink struct {
@@ -19,5 +20,5 @@ func (fs *FileSink) Consume(source <-chan []byte) {
 	for chunk := range source {
 		file.Write(chunk)
 	}
-	defer file.Close()
+	file.Close()
 }

@@ -2,6 +2,7 @@ package main
 
 import (
 	"io"
+//	"fmt"
 	"net/http"
 )
 
@@ -16,10 +17,10 @@ func NewHttpSource(url string) (hs *HttpSource) {
 }
 
 func (hs *HttpSource) Stream(destination chan<- []byte) {
-	chunk := make([]byte, 64000, 64000)
 	resp, _ := http.Get(hs.Url)
 	if (resp.StatusCode == 200) {
 		for {
+			chunk := make([]byte, 64000, 64000)
 			n, err := resp.Body.Read(chunk)
 			destination <- chunk[0:n]
 			if n == 0 && err == io.EOF { break }
