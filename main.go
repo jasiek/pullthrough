@@ -2,20 +2,37 @@ package main
 
 import (
 //	"github.com/pkg/errors"
-//	"fmt"
+	"fmt"
+	"io"
+	"os"
+	"net/http"
 )
 
-func main() {
-	hs := NewHttpSource("http://localhost:8000/wl.txt")
-	fs := NewFileSink("test")
-	
-	destination := make(chan []byte)
-	source := make(chan []byte)
-	
-	go hs.Stream(destination)
-	go fs.Consume(source)
+type RequestHandler struct {
+	CompleteFiles map[string]string
+}
 
-	for x := range destination {
-		source <- x
+func NewRequestHandler() (rh *RequestHandler) {
+	rh = new(RequestHandler)
+	rh.CompleteFiles = make(map[string]string)
+	rh.CompleteFiles["http://localhost:8000/wl.txt"] = "test"
+	return rh
+}
+
+func (rh *RequestHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	fmt.Println(r.URL.String())
+	if filename, ok := rh.CompleteFiles[r.URL.String()]; ok {
+		f, _ := os.Open(filename)
+		io.Copy(w, f)
+		f.Close()
+		return
 	}
+}
+
+
+func main() {
+	mux := http.NewServeMux()
+	handler := NewRequestHandler()
+	mux.Handle("/", handler)
+	http.ListenAndServe(":3000", mux)
 }
