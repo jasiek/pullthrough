@@ -32,8 +32,7 @@ func (rh *RequestHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			f.Close()
 		} else {
 			log.Println("Found partial, sending")
-			pusher := NewHttpPusher(fe)
-			go pusher.Push(w)
+			go fe.Push(w)
 		}
 		return
 	}
@@ -42,17 +41,15 @@ func (rh *RequestHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	fe := NewFileEntry(key)
 	rh.Files[key] = fe
 	log.Println("saving as " + fe.Filename)
-	puller := NewHttpPuller(fe)
-	pusher := NewHttpPusher(fe)
-	go puller.PullAndSave()
-	go pusher.Push(w)
+	go fe.Pull()
+	defer fe.Push(w)
 }
 
 func main() {
 	mux := http.NewServeMux()
 	handler := NewRequestHandler()
 
-	ticker := time.NewTicker(time.Second)
+	ticker := time.NewTicker(time.Second * 10)
 	go func() {
 		for {
 			<- ticker.C
