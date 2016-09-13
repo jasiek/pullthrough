@@ -7,32 +7,26 @@ import (
 	"log"
 )
 
-type PartialFileEntry struct {
-	Filename string
-	Length int64
-	Downloaded int64
-}
-
 type HttpPuller struct {
-	URL string
-	Entry *PartialFileEntry
+	Entry *FileEntry
 }
 
-func NewHttpPuller(url string, entry *PartialFileEntry) (ht *HttpPuller) {
+func NewHttpPuller(entry *FileEntry) (ht *HttpPuller) {
 	ht = new(HttpPuller)
-	ht.URL = url
 	ht.Entry = entry
 	return ht
 }
 
 func (ht* HttpPuller) UpdateProgress(progress int) {
 	ht.Entry.Downloaded += int64(progress)
+	ht.Entry.NotifySinks()
 }
 
-func (ht *HttpPuller) PullAndSave(done chan<- bool) {
-	log.Println("Pulling: " + ht.URL)
-	resp, _ := http.Get(ht.URL)
+func (ht *HttpPuller) PullAndSave() {
+	log.Println("Pulling: " + ht.Entry.URL)
+	resp, _ := http.Get(ht.Entry.URL)
 	if (resp.StatusCode == 200) {
+		ht.Entry.Length = resp.ContentLength
 		chunk := make([]byte, 64000, 64000)
 		f, _ := os.Create(ht.Entry.Filename)
 		for {
@@ -44,6 +38,5 @@ func (ht *HttpPuller) PullAndSave(done chan<- bool) {
 		}
 		defer f.Close()
 		log.Print("Finished")
-		done <- true
 	}
 }
