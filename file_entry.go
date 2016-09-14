@@ -99,6 +99,21 @@ func (fe *FileEntry) RemoveConsumer(c *Consumer) (index int) {
 }
 
 func (fe *FileEntry) Push(w http.ResponseWriter) {
+	if fe.IsDone() {
+		fe.PushCompleted(w)
+	} else {
+		fe.PushIncomplete(w)
+	}
+}
+
+func (fe *FileEntry) PushCompleted(w http.ResponseWriter) {
+	log.Println("Pushing from cache: " + fe.URL)
+	f, _ := os.Open(fe.Filename)
+	io.Copy(w, f)
+	f.Close()
+}
+
+func (fe *FileEntry) PushIncomplete(w http.ResponseWriter) {
 	log.Println("Pushing: " + fe.URL)
 	if !fe.Created {
 		<- fe.CreatedNotifier
