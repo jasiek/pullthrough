@@ -9,10 +9,12 @@ import (
 	"log"
 	"net/http"
 	"time"
+	"sync"
 )
 
 type RequestHandler struct {
 	Files map[string]*FileEntry
+	Mutex sync.Mutex
 }
 
 func NewRequestHandler() (rh *RequestHandler) {
@@ -24,7 +26,9 @@ func NewRequestHandler() (rh *RequestHandler) {
 func (rh *RequestHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	key := r.URL.String()
 	log.Println("Incoming request for " + key)
+	rh.Mutex.Lock()
 	if fe, ok := rh.Files[key]; ok {
+		rh.Mutex.Unlock()
 		if fe.IsDone() {
 			log.Println("Found in cache, sending")
 			f, _ := os.Open(fe.Filename)
@@ -32,17 +36,17 @@ func (rh *RequestHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			f.Close()
 		} else {
 			log.Println("Found partial, sending")
-			go fe.Push(w)
+			fe.Push(w)
 		}
 		return
+	} else {
+		fe := NewFileEntry(key)
+		rh.Files[key] = fe
+		rh.Mutex.Unlock()
+		log.Println("saving as " + fe.Filename)
+		go fe.Pull()
+		fe.Push(w)
 	}
-
-	// create a new partial file and start streaming
-	fe := NewFileEntry(key)
-	rh.Files[key] = fe
-	log.Println("saving as " + fe.Filename)
-	go fe.Pull()
-	defer fe.Push(w)
 }
 
 func main() {
