@@ -6,30 +6,29 @@ import (
 	"os"
 	"net/http"
 	"log"
-	"sync"
 )
 
 type Consumer struct {
-	Active bool
 	Progress chan int64
 }
 
 func NewConsumer() (c *Consumer) {
 	c = new(Consumer)
-	c.Active = false
 	c.Progress = make(chan int64)
 	return c
 }
 
 type FileEntry struct {
-	Mutex sync.Mutex
 	URL string
 	Filename string
 	Length int64
 	Downloaded int64
 	Created bool
+	Completed bool
 	CreatedNotifier chan bool
 	Consumers []*Consumer
+	AddConsumerChannel chan *Consumer
+	RemoveConsumerChannel chan *Consumer
 }
 
 func NewFileEntry(url string) (fe *FileEntry) {
@@ -39,21 +38,37 @@ func NewFileEntry(url string) (fe *FileEntry) {
 	fe.Length = 0
 	fe.Downloaded = 0
 	fe.Created = false
+	fe.Completed = false
 	fe.CreatedNotifier = make(chan bool)
 	fe.Consumers = make([]*Consumer, 0)
-	return fe
-}
+	fe.AddConsumerChannel = make(chan *Consumer)
+	fe.RemoveConsumerChannel = make(chan *Consumer)
 
-func (fe *FileEntry) IsDone() bool {
-	return fe.Downloaded == fe.Length
+	go func() {
+		for c := range fe.RemoveConsumerChannel {
+			var index int
+			for i, e := range fe.Consumers {
+				if e == c {
+					index = i
+				}
+			}
+			fe.Consumers = append(fe.Consumers[:index], fe.Consumers[index+1:]...)
+		}
+	}()
+
+	go func() {
+		for c := range fe.AddConsumerChannel {
+			fe.Consumers = append(fe.Consumers, c)
+		}
+	}()
+	
+	return fe
 }
 
 func (fe *FileEntry) UpdateProgress(n int) {
 	fe.Downloaded += int64(n)
 	for _, c := range fe.Consumers {
-		if (c.Active) {
-			c.Progress <- fe.Downloaded
-		}
+		c.Progress <- fe.Downloaded
 	}
 }
 
@@ -74,32 +89,18 @@ func (fe *FileEntry) Pull() {
 			fe.UpdateProgress(n)
 			if n == 0 && err == io.EOF { break }
 		}
-		defer f.Close()
+
+		f.Close()
+		fe.Completed = true
+		close(fe.AddConsumerChannel)
+		close(fe.RemoveConsumerChannel)
 		log.Print("Finished")
 	}
 	
 }
 
-func (fe *FileEntry) AddConsumer(c *Consumer) {
-	fe.Mutex.Lock()
-	fe.Consumers = append(fe.Consumers, c)
-	fe.Mutex.Unlock()
-}
-
-func (fe *FileEntry) RemoveConsumer(c *Consumer) (index int) {
-	fe.Mutex.Lock()
-	for i, e := range fe.Consumers {
-		if e == c {
-			index = i
-		}
-	}
-	fe.Consumers = append(fe.Consumers[:index], fe.Consumers[index+1:]...)
-	fe.Mutex.Unlock()
-	return index
-}
-
 func (fe *FileEntry) Push(w http.ResponseWriter) {
-	if fe.IsDone() {
+	if fe.Completed {
 		fe.PushCompleted(w)
 	} else {
 		fe.PushIncomplete(w)
@@ -116,12 +117,14 @@ func (fe *FileEntry) PushCompleted(w http.ResponseWriter) {
 func (fe *FileEntry) PushIncomplete(w http.ResponseWriter) {
 	log.Println("Pushing: " + fe.URL)
 	if !fe.Created {
+		log.Println("Waiting until file gets created")
 		<- fe.CreatedNotifier
+		log.Println("file created")
 	}
 	f, err := os.Open(fe.Filename)
 	log.Println("File opened", f, err)
 	consumer := NewConsumer()
-	fe.AddConsumer(consumer)
+	fe.AddConsumerChannel <- consumer
 	for pos := int64(0); pos < fe.Length ; {
 		log.Println(pos, fe.Downloaded, fe.Length)
 		for {
@@ -133,15 +136,13 @@ func (fe *FileEntry) PushIncomplete(w http.ResponseWriter) {
 			}
 		}
 
-		consumer.Active = true
 		select {
 		case <- w.(http.CloseNotifier).CloseNotify():
-			consumer.Active = false
-			fe.RemoveConsumer(consumer)
+			fe.RemoveConsumerChannel <- consumer
 			break
 		case <- consumer.Progress:
-			// NOOP
+		default:
 		}
 	}
-	consumer.Active = false
+	fe.RemoveConsumerChannel <- consumer
 }
