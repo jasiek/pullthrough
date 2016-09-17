@@ -3,12 +3,15 @@ package main
 import (
 	//	"github.com/pkg/errors"
 	"github.com/kr/pretty"
-//	"fmt"
+	//	"fmt"
 	"log"
 	"net/http"
 	"time"
 	"sync"
 )
+
+import _ 	"net/http/pprof"
+
 
 type RequestHandler struct {
 	Files map[string]*FileEntry
@@ -44,10 +47,13 @@ func main() {
 
 	ticker := time.NewTicker(time.Second * 10)
 	go func() {
-		for {
-			<- ticker.C
-			pretty.Println(handler)
+		for range ticker.C {
+		 	pretty.Println(handler)
 		}
+	}()
+
+	go func() {
+		log.Println(http.ListenAndServe("localhost:6060", nil))
 	}()
 	
 	mux.Handle("/", handler)

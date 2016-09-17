@@ -1,4 +1,3 @@
-
 package main
 
 import (
@@ -6,6 +5,10 @@ import (
 	"os"
 	"net/http"
 	"log"
+)
+
+const (
+	DEFAULT_CHUNK_SIZE = 1024 * 1024
 )
 
 type Consumer struct {
@@ -24,8 +27,8 @@ type FileEntry struct {
 	Length int64
 	Downloaded int64
 	Created bool
-	Completed bool
 	CreatedNotifier chan bool
+	Completed bool
 	Consumers []*Consumer
 	AddConsumerChannel chan *Consumer
 	RemoveConsumerChannel chan *Consumer
@@ -61,7 +64,7 @@ func NewFileEntry(url string) (fe *FileEntry) {
 			fe.Consumers = append(fe.Consumers, c)
 		}
 	}()
-	
+
 	return fe
 }
 
@@ -77,7 +80,7 @@ func (fe *FileEntry) Pull() {
 	resp, _ := http.Get(fe.URL)
 	if (resp.StatusCode == 200) {
 		fe.Length = resp.ContentLength
-		chunk := make([]byte, 64000, 64000)
+		chunk := make([]byte, DEFAULT_CHUNK_SIZE, DEFAULT_CHUNK_SIZE)
 		f, _ := os.Create(fe.Filename)
 
 		fe.CreatedNotifier <- true
@@ -125,24 +128,28 @@ func (fe *FileEntry) PushIncomplete(w http.ResponseWriter) {
 	log.Println("File opened", f, err)
 	consumer := NewConsumer()
 	fe.AddConsumerChannel <- consumer
+
+	notifier := w.(http.CloseNotifier).CloseNotify()
+	
 	for pos := int64(0); pos < fe.Length ; {
-		log.Println(pos, fe.Downloaded, fe.Length)
 		for {
 			if pos < fe.Downloaded {
-				n, _ := io.CopyN(w, f, 64000)
+				n, err := io.CopyN(w, f, DEFAULT_CHUNK_SIZE)
+				if n == 0 && err == io.EOF { break }
 				pos += n
 			} else {
 				break
 			}
+
+			select {
+			case <- notifier:
+				fe.RemoveConsumerChannel <- consumer
+				break
+			default:
+			}
 		}
 
-		select {
-		case <- w.(http.CloseNotifier).CloseNotify():
-			fe.RemoveConsumerChannel <- consumer
-			break
-		case <- consumer.Progress:
-		default:
-		}
+		<- consumer.Progress
 	}
 	fe.RemoveConsumerChannel <- consumer
 }
