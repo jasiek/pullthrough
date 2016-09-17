@@ -30,14 +30,14 @@ func (rh *RequestHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	rh.Mutex.Lock()
 	if fe, ok := rh.Files[key]; ok {
 		rh.Mutex.Unlock()
-		fe.Push(w)
+		fe.Push(w, r)
 	} else {
 		fe := NewFileEntry(key)
 		rh.Files[key] = fe
 		rh.Mutex.Unlock()
 		log.Println("saving as " + fe.Filename)
 		go fe.Pull()
-		fe.Push(w)
+		fe.Push(w, r)
 	}
 }
 

@@ -5,6 +5,7 @@ import (
 	"os"
 	"net/http"
 	"log"
+	"time"
 )
 
 const (
@@ -23,6 +24,9 @@ func NewConsumer() (c *Consumer) {
 
 type FileEntry struct {
 	URL string
+	ETag string
+	LastModified time.Time
+	
 	Filename string
 	Length int64
 	Downloaded int64
@@ -68,6 +72,13 @@ func NewFileEntry(url string) (fe *FileEntry) {
 	return fe
 }
 
+func (fe *FileEntry) createFile() (f *os.File) {
+	f, _ = os.Create(fe.Filename)
+	fe.CreatedNotifier <- true
+	fe.Created = true
+	return f
+}
+
 func (fe *FileEntry) UpdateProgress(n int) {
 	fe.Downloaded += int64(n)
 	for _, c := range fe.Consumers {
@@ -80,11 +91,20 @@ func (fe *FileEntry) Pull() {
 	resp, _ := http.Get(fe.URL)
 	if (resp.StatusCode == 200) {
 		fe.Length = resp.ContentLength
-		chunk := make([]byte, DEFAULT_CHUNK_SIZE, DEFAULT_CHUNK_SIZE)
-		f, _ := os.Create(fe.Filename)
+		etagString := resp.Header.Get("etag")
+		if etagString != "" {
+			fe.ETag = etagString
+		}
 
-		fe.CreatedNotifier <- true
-		fe.Created = true
+		lastModifiedString := resp.Header.Get("last-modified")
+		lastModified, err := time.Parse(time.RFC1123, lastModifiedString)
+		if err != nil {
+			fe.LastModified = lastModified
+		}
+		
+		chunk := make([]byte, DEFAULT_CHUNK_SIZE, DEFAULT_CHUNK_SIZE)
+
+		f := fe.createFile()
 
 		for {
 			n, err := resp.Body.Read(chunk)
@@ -102,11 +122,40 @@ func (fe *FileEntry) Pull() {
 	
 }
 
-func (fe *FileEntry) Push(w http.ResponseWriter) {
-	if fe.Completed {
-		fe.PushCompleted(w)
+func expired(r *http.Request, etag string, lastModified time.Time) (bool) {
+	reqEtag := r.Header.Get("if-not-match")
+	if reqEtag != "" && reqEtag != etag { return true }
+	requestDateString := r.Header.Get("if-modified-since")
+	requestDate, err := time.Parse(time.RFC1123, requestDateString)
+	if err == nil {
+		return requestDate.Before(lastModified)
+	}
+	return reqEtag == "" && requestDateString == ""
+
+}
+
+func (fe *FileEntry) PushNotModified(w http.ResponseWriter) {
+	w.WriteHeader(http.StatusNotModified)
+}
+
+func (fe *FileEntry) Push(w http.ResponseWriter, r *http.Request) {
+	// push headers first, regardless of what we're doing
+
+	if !fe.LastModified.IsZero() {
+		w.Header().Set("last-modified", fe.LastModified.Format(time.RFC1123))
+	}
+	if fe.ETag != "" {
+		w.Header().Set("etag", fe.ETag)
+	}
+
+	if expired(r, fe.ETag, fe.LastModified) {
+		if fe.Completed {
+			fe.PushCompleted(w)
+		} else {
+			fe.PushIncomplete(w)
+		}
 	} else {
-		fe.PushIncomplete(w)
+		fe.PushNotModified(w)
 	}
 }
 
