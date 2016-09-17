@@ -13,3 +13,9 @@ This component acts as a proxy which when it comes across a request will:
   the client
 * a request for a file that is partially in cache (eg. in progress, see above) will not start any additional
   connections to the outside network, but will share the same connection as initiated via the process above.
+
+## TODO
+
+* handle cases where content is being chunked from the source
+* https support via CONNECT
+* compression
