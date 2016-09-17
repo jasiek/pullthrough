@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"log"
 	"time"
+	"strconv"
 )
 
 const (
@@ -28,6 +29,7 @@ type FileEntry struct {
 	LastModified time.Time
 	
 	Filename string
+	ContentType string
 	Length int64
 	Downloaded int64
 	Created bool
@@ -141,6 +143,8 @@ func (fe *FileEntry) PushNotModified(w http.ResponseWriter) {
 func (fe *FileEntry) Push(w http.ResponseWriter, r *http.Request) {
 	// push headers first, regardless of what we're doing
 
+	w.Header().Set("content-length", strconv.FormatInt(fe.Length, 10))
+	w.Header().Set("content-type", fe.ContentType)
 	if !fe.LastModified.IsZero() {
 		w.Header().Set("last-modified", fe.LastModified.Format(time.RFC1123))
 	}
