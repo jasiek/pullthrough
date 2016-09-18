@@ -34,6 +34,8 @@ type FileEntry struct {
 	Downloaded int64
 	Created bool
 	CreatedNotifier chan bool
+	MetadataAvailable bool
+	MetadataAvailableNotifier chan bool
 	Completed bool
 	Consumers []*Consumer
 	AddConsumerChannel chan *Consumer
@@ -49,6 +51,7 @@ func NewFileEntry(url string) (fe *FileEntry) {
 	fe.Created = false
 	fe.Completed = false
 	fe.CreatedNotifier = make(chan bool)
+	fe.MetadataAvailableNotifier = make(chan bool)
 	fe.Consumers = make([]*Consumer, 0)
 	fe.AddConsumerChannel = make(chan *Consumer)
 	fe.RemoveConsumerChannel = make(chan *Consumer)
@@ -92,7 +95,9 @@ func (fe *FileEntry) Pull() {
 	log.Println("Pulling: " + fe.URL)
 	resp, _ := http.Get(fe.URL)
 	if (resp.StatusCode == 200) {
+		// what happens if this is chunked?
 		fe.Length = resp.ContentLength
+		fe.ContentType = resp.Header.Get("content-type")
 		etagString := resp.Header.Get("etag")
 		if etagString != "" {
 			fe.ETag = etagString
@@ -103,6 +108,9 @@ func (fe *FileEntry) Pull() {
 		if err != nil {
 			fe.LastModified = lastModified
 		}
+
+		fe.MetadataAvailable = true
+		fe.MetadataAvailableNotifier <- true
 		
 		chunk := make([]byte, DEFAULT_CHUNK_SIZE, DEFAULT_CHUNK_SIZE)
 
@@ -143,7 +151,13 @@ func (fe *FileEntry) PushNotModified(w http.ResponseWriter) {
 func (fe *FileEntry) Push(w http.ResponseWriter, r *http.Request) {
 	// push headers first, regardless of what we're doing
 
-	w.Header().Set("content-length", strconv.FormatInt(fe.Length, 10))
+	if !fe.MetadataAvailable {
+		<- fe.MetadataAvailableNotifier
+	}
+
+	if fe.Completed {
+		w.Header().Set("content-length", strconv.FormatInt(fe.Length, 10))
+	}
 	w.Header().Set("content-type", fe.ContentType)
 	if !fe.LastModified.IsZero() {
 		w.Header().Set("last-modified", fe.LastModified.Format(time.RFC1123))
