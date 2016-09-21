@@ -16,6 +16,8 @@ This component acts as a proxy which when it comes across a request will:
 
 ## TODO
 
+* what happens when we can't connect to the source server?
+* server drops connection
 * handle cases where content is being chunked from the source
 * https support via CONNECT
 * compression
